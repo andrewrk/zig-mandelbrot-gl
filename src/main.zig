@@ -7,6 +7,10 @@ const StaticGeometry = @import("static_geometry.zig").StaticGeometry;
 const AllShaders = @import("all_shaders.zig").AllShaders;
 const math3d = @import("math3d.zig");
 const Mat4x4 = math3d.Mat4x4;
+const Vec4 = math3d.Vec4;
+const Vec3 = math3d.Vec3;
+const vec3 = math3d.vec3;
+const vec4 = math3d.vec4;
 const mat4x4_identity = math3d.mat4x4_identity;
 
 const App = struct {
@@ -17,6 +21,7 @@ const App = struct {
     framebuffer_width: u31,
     framebuffer_height: u31,
     image: Image,
+    mouse_down_pos: ?Vec3,
 };
 var application: App = undefined;
 var img_buf: []u8 = [0]u8{};
@@ -30,8 +35,28 @@ extern fn keyCallback(window: ?*c.GLFWwindow, key: c_int, scancode: c_int, actio
 
     switch (key) {
         c.GLFW_KEY_ESCAPE => c.glfwSetWindowShouldClose(window, c.GL_TRUE),
-        c.GLFW_KEY_SPACE => renderFrame(&application),
         else => {},
+    }
+}
+
+extern fn mouseButtonCallback(window: ?*c.GLFWwindow, button: c_int, action: c_int, mods: c_int) void {
+    const app = &application;
+    if (action == c.GLFW_PRESS and
+        button & c.GLFW_MOUSE_BUTTON_LEFT == c.GLFW_MOUSE_BUTTON_LEFT)
+    {
+        var x: f64 = undefined;
+        var y: f64 = undefined;
+        c.glfwGetCursorPos(window, &x, &y);
+        app.mouse_down_pos = vec3(@floatCast(f32, x), @floatCast(f32, y), 1.0);
+    } else if (action == c.GLFW_RELEASE and button & c.GLFW_MOUSE_BUTTON_LEFT == 0) {
+        if (app.mouse_down_pos) |start_pos| {
+            var x: f64 = undefined;
+            var y: f64 = undefined;
+            c.glfwGetCursorPos(window, &x, &y);
+            const end_pos = vec3(@floatCast(f32, x), @floatCast(f32, y), 1.0);
+            handleMouseRelease(app, start_pos, end_pos);
+            app.mouse_down_pos = null;
+        }
     }
 }
 
@@ -63,6 +88,7 @@ pub fn main() anyerror!void {
     c.glfwSetWindowUserPointer(app.window, app);
 
     _ = c.glfwSetKeyCallback(app.window, keyCallback);
+    _ = c.glfwSetMouseButtonCallback(app.window, mouseButtonCallback);
     {
         // Returns the previous callback or null
         _ = c.glfwSetFramebufferSizeCallback(app.window, framebufferResizeCallback);
@@ -72,6 +98,8 @@ pub fn main() anyerror!void {
         app.framebuffer_width = @intCast(u31, width);
         app.framebuffer_height = @intCast(u31, height);
     }
+
+    app.mouse_down_pos = null;
 
     c.glfwMakeContextCurrent(app.window);
     c.glfwSwapInterval(1);
@@ -230,6 +258,48 @@ const Image = struct {
     }
 };
 
+fn fillRectMvp(app: *App, color: Vec4, mvp: Mat4x4) void {
+    app.all_shaders.primitive.bind();
+    app.all_shaders.primitive.setUniformVec4(app.all_shaders.primitive_uniform_color, color);
+    app.all_shaders.primitive.setUniformMat4x4(app.all_shaders.primitive_uniform_mvp, mvp);
+
+    c.glBindBuffer(c.GL_ARRAY_BUFFER, app.static_geometry.rect_2d_vertex_buffer);
+    c.glEnableVertexAttribArray(@intCast(c.GLuint, app.all_shaders.primitive_attrib_position));
+    c.glVertexAttribPointer(@intCast(c.GLuint, app.all_shaders.primitive_attrib_position), 3, c.GL_FLOAT, c.GL_FALSE, 0, null);
+
+    c.glDrawArrays(c.GL_TRIANGLE_STRIP, 0, 4);
+}
+
+fn fillRect(app: *App, color: Vec4, x: f32, y: f32, w: f32, h: f32) void {
+    const model = mat4x4_identity.translate(x, y, 0.0).scale(w, h, 0.0);
+    const mvp = app.projection.mult(model);
+    fillRectMvp(app, color, mvp);
+}
+
+fn drawFrame(app: *App) void {
+    const model = mat4x4_identity;
+    const mvp = app.projection.mult(model);
+    app.image.draw(app.all_shaders, mvp);
+
+    drawZoomBox(app);
+}
+
+fn drawZoomBox(app: *App) void {
+    const start_pos = app.mouse_down_pos orelse return;
+    var cursor_x: f64 = undefined;
+    var cursor_y: f64 = undefined;
+    c.glfwGetCursorPos(app.window, &cursor_x, &cursor_y);
+    const end_pos = vec3(@floatCast(f32, cursor_x), @floatCast(f32, cursor_y), 1.0);
+    const delta = end_pos.sub(start_pos);
+    const color = vec4(1.0, 1.0, 1.0, 0.1);
+    fillRect(app, color, start_pos.data[0], start_pos.data[1], delta.data[0], delta.data[1]);
+}
+
+fn handleMouseRelease(app: *App, start_pos: Vec3, end_pos: Vec3) void {
+    const delta = end_pos.sub(start_pos);
+    std.debug.warn("zoom: pos: {},{} size: {},{}\n", start_pos.data[0], start_pos.data[1], delta.data[0], delta.data[1]);
+}
+
 fn renderFrame(app: *App) void {
     const row_len = app.framebuffer_width * 4;
     var y: u31 = 0;
@@ -247,10 +317,4 @@ fn renderFrame(app: *App) void {
         }
     }
     app.image.update(img_buf);
-}
-
-fn drawFrame(app: *App) void {
-    const model = mat4x4_identity;
-    const mvp = app.projection.mult(model);
-    app.image.draw(app.all_shaders, mvp);
 }

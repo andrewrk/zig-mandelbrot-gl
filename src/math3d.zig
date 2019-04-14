@@ -194,6 +194,16 @@ pub const Vec3 = struct {
             },
         };
     }
+
+    pub fn sub(v: Vec3, other: Vec3) Vec3 {
+        return Vec3{
+            .data = []f32{
+                v.data[0] - other.data[0],
+                v.data[1] - other.data[1],
+                v.data[2] - other.data[2],
+            },
+        };
+    }
 };
 
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
