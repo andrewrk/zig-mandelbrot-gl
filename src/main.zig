@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = std.math;
 const c = @import("c.zig");
 const panic = std.debug.panic;
 const assert = std.debug.assert;
@@ -22,6 +23,8 @@ const App = struct {
     framebuffer_height: u31,
     image: Image,
     mouse_down_pos: ?Vec3,
+    zooms: std.ArrayList(ZoomBox),
+    zoom: ZoomBox,
 };
 var application: App = undefined;
 var img_buf: []u8 = [0]u8{};
@@ -35,6 +38,12 @@ extern fn keyCallback(window: ?*c.GLFWwindow, key: c_int, scancode: c_int, actio
 
     switch (key) {
         c.GLFW_KEY_ESCAPE => c.glfwSetWindowShouldClose(window, c.GL_TRUE),
+        c.GLFW_KEY_BACKSPACE => {
+            if (application.zooms.popOrNull()) |prev_zoom| {
+                application.zoom = prev_zoom;
+                renderFrame(&application);
+            }
+        },
         else => {},
     }
 }
@@ -45,15 +54,15 @@ extern fn mouseButtonCallback(window: ?*c.GLFWwindow, button: c_int, action: c_i
         button & c.GLFW_MOUSE_BUTTON_LEFT == c.GLFW_MOUSE_BUTTON_LEFT)
     {
         var x: f64 = undefined;
-        var y: f64 = undefined;
-        c.glfwGetCursorPos(window, &x, &y);
-        app.mouse_down_pos = vec3(@floatCast(f32, x), @floatCast(f32, y), 1.0);
+        var pix_y: f64 = undefined;
+        c.glfwGetCursorPos(window, &x, &pix_y);
+        app.mouse_down_pos = vec3(@floatCast(f32, x), @floatCast(f32, pix_y), 1.0);
     } else if (action == c.GLFW_RELEASE and button & c.GLFW_MOUSE_BUTTON_LEFT == 0) {
         if (app.mouse_down_pos) |start_pos| {
             var x: f64 = undefined;
-            var y: f64 = undefined;
-            c.glfwGetCursorPos(window, &x, &y);
-            const end_pos = vec3(@floatCast(f32, x), @floatCast(f32, y), 1.0);
+            var pix_y: f64 = undefined;
+            c.glfwGetCursorPos(window, &x, &pix_y);
+            const end_pos = vec3(@floatCast(f32, x), @floatCast(f32, pix_y), 1.0);
             handleMouseRelease(app, start_pos, end_pos);
             app.mouse_down_pos = null;
         }
@@ -66,6 +75,13 @@ extern fn framebufferResizeCallback(window: ?*c.GLFWwindow, width: c_int, height
     app.framebuffer_height = @intCast(u31, height);
     resetProjection(app);
 }
+
+const ZoomBox = struct {
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+};
 
 pub fn main() anyerror!void {
     const app = &application;
@@ -100,6 +116,13 @@ pub fn main() anyerror!void {
     }
 
     app.mouse_down_pos = null;
+    app.zooms = std.ArrayList(ZoomBox).init(std.heap.c_allocator);
+    app.zoom = ZoomBox{
+        .left = -2.0,
+        .top = 1.0,
+        .right = 1.0,
+        .bottom = -1.0,
+    };
 
     c.glfwMakeContextCurrent(app.window);
     c.glfwSwapInterval(1);
@@ -270,8 +293,8 @@ fn fillRectMvp(app: *App, color: Vec4, mvp: Mat4x4) void {
     c.glDrawArrays(c.GL_TRIANGLE_STRIP, 0, 4);
 }
 
-fn fillRect(app: *App, color: Vec4, x: f32, y: f32, w: f32, h: f32) void {
-    const model = mat4x4_identity.translate(x, y, 0.0).scale(w, h, 0.0);
+fn fillRect(app: *App, color: Vec4, x: f32, pix_y: f32, w: f32, h: f32) void {
+    const model = mat4x4_identity.translate(x, pix_y, 0.0).scale(w, h, 0.0);
     const mvp = app.projection.mult(model);
     fillRectMvp(app, color, mvp);
 }
@@ -291,29 +314,80 @@ fn drawZoomBox(app: *App) void {
     c.glfwGetCursorPos(app.window, &cursor_x, &cursor_y);
     const end_pos = vec3(@floatCast(f32, cursor_x), @floatCast(f32, cursor_y), 1.0);
     const delta = end_pos.sub(start_pos);
-    const color = vec4(1.0, 1.0, 1.0, 0.1);
+    const color = vec4(1.0, 1.0, 1.0, 0.4);
     fillRect(app, color, start_pos.data[0], start_pos.data[1], delta.data[0], delta.data[1]);
 }
 
 fn handleMouseRelease(app: *App, start_pos: Vec3, end_pos: Vec3) void {
-    const delta = end_pos.sub(start_pos);
-    std.debug.warn("zoom: pos: {},{} size: {},{}\n", start_pos.data[0], start_pos.data[1], delta.data[0], delta.data[1]);
+    app.zooms.append(app.zoom) catch @panic("out of memory");
+
+    const start_pix_x = std.math.min(start_pos.data[0], end_pos.data[0]);
+    const start_pix_y = std.math.min(start_pos.data[1], end_pos.data[1]);
+    const end_pix_x = std.math.max(start_pos.data[0], end_pos.data[0]);
+    const end_pix_y = std.math.max(start_pos.data[1], end_pos.data[1]);
+
+    const w = @intToFloat(f64, app.framebuffer_width);
+    const h = @intToFloat(f64, app.framebuffer_height);
+
+    const imag_w = (app.zoom.right - app.zoom.left);
+    const imag_h = (app.zoom.top - app.zoom.bottom);
+
+    const new_zoom_left = app.zoom.left + start_pix_x / w * imag_w;
+    const new_zoom_right = app.zoom.left + end_pix_x / w * imag_w;
+
+    const new_zoom_bottom = app.zoom.bottom + start_pix_y / h * imag_h;
+    const new_zoom_top = app.zoom.bottom + end_pix_y / h * imag_h;
+
+    app.zoom = ZoomBox{
+        .left = new_zoom_left,
+        .right = new_zoom_right,
+        .top = new_zoom_top,
+        .bottom = new_zoom_bottom,
+    };
+    renderFrame(app);
 }
 
 fn renderFrame(app: *App) void {
-    const row_len = app.framebuffer_width * 4;
-    var y: u31 = 0;
-    while (y < app.framebuffer_height) : (y += 1) {
-        var x: u31 = 0;
-        while (x < app.framebuffer_width) : (x += 1) {
-            const pix_offset = y * row_len + x * 4;
-            const y_scale = @intToFloat(f32, y) / @intToFloat(f32, app.framebuffer_height);
-            const x_scale = @intToFloat(f32, x) / @intToFloat(f32, app.framebuffer_width);
+    const w = @intToFloat(f64, app.framebuffer_width);
+    const h = @intToFloat(f64, app.framebuffer_height);
+    const imag_w = (app.zoom.right - app.zoom.left);
+    const imag_h = (app.zoom.top - app.zoom.bottom);
 
-            img_buf[pix_offset + 0] = @floatToInt(u8, 0xff * y_scale);
-            img_buf[pix_offset + 1] = 0x00;
-            img_buf[pix_offset + 2] = @floatToInt(u8, 0xff * x_scale);
-            img_buf[pix_offset + 3] = 0xff;
+    const row_len = app.framebuffer_width * 4;
+    var pix_y: u31 = 0;
+    while (pix_y < app.framebuffer_height) : (pix_y += 1) {
+        var pix_x: u31 = 0;
+        while (pix_x < app.framebuffer_width) : (pix_x += 1) {
+            const pix_offset = pix_y * row_len + pix_x * 4;
+            const cx = app.zoom.left + @intToFloat(f64, pix_x) / w * imag_w;
+            const cy = app.zoom.bottom + @intToFloat(f64, pix_y) / h * imag_h;
+
+            var zx1 = cx;
+            var zy1 = cy;
+            var iterations: usize = 0;
+            const iteration_limit = 256;
+            const escaped = while (iterations < iteration_limit) : (iterations += 1) {
+                const zx = zx1;
+                const zy = zy1;
+                zx1 = zx * zx - zy * zy + cx;
+                zy1 = zx * zy * 2 + cy;
+
+                if (zx1 * zx1 + zy1 * zy1 > 4) {
+                    break true;
+                }
+            } else false;
+
+            if (escaped) {
+                img_buf[pix_offset + 0] = 0;
+                img_buf[pix_offset + 1] = @intCast(u8, iterations);
+                img_buf[pix_offset + 2] = 255 - @intCast(u8, iterations);
+                img_buf[pix_offset + 3] = 255;
+            } else {
+                img_buf[pix_offset + 0] = 0;
+                img_buf[pix_offset + 1] = 0;
+                img_buf[pix_offset + 2] = 0;
+                img_buf[pix_offset + 3] = 255;
+            }
         }
     }
     app.image.update(img_buf);
