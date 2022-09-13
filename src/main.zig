@@ -1,6 +1,6 @@
 const std = @import("std");
 const math = std.math;
-const c = @import("c.zig");
+const c = @import("c.zig").c;
 const panic = std.debug.panic;
 const assert = std.debug.assert;
 const debug_gl = @import("./debug_gl.zig");
@@ -27,13 +27,16 @@ const App = struct {
     zoom: ZoomBox,
 };
 var application: App = undefined;
-var img_buf: []u8 = [0]u8{};
+var img_buf: []u8 = "";
 
-extern fn errorCallback(err: c_int, description: [*c]const u8) void {
-    panic("Error: {}\n", description);
+fn errorCallback(err: c_int, description: [*c]const u8) callconv(.C) void {
+    _ = err;
+    panic("Error: {s}\n", .{description});
 }
 
-extern fn keyCallback(window: ?*c.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) void {
+fn keyCallback(window: ?*c.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.C) void {
+    _ = scancode;
+    _ = mods;
     if (action != c.GLFW_PRESS) return;
 
     switch (key) {
@@ -48,7 +51,8 @@ extern fn keyCallback(window: ?*c.GLFWwindow, key: c_int, scancode: c_int, actio
     }
 }
 
-extern fn mouseButtonCallback(window: ?*c.GLFWwindow, button: c_int, action: c_int, mods: c_int) void {
+fn mouseButtonCallback(window: ?*c.GLFWwindow, button: c_int, action: c_int, mods: c_int) callconv(.C) void {
+    _ = mods;
     const app = &application;
     if (action == c.GLFW_PRESS and
         button & c.GLFW_MOUSE_BUTTON_LEFT == c.GLFW_MOUSE_BUTTON_LEFT)
@@ -69,7 +73,8 @@ extern fn mouseButtonCallback(window: ?*c.GLFWwindow, button: c_int, action: c_i
     }
 }
 
-extern fn framebufferResizeCallback(window: ?*c.GLFWwindow, width: c_int, height: c_int) void {
+fn framebufferResizeCallback(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
+    _ = window;
     const app = &application;
     app.framebuffer_width = @intCast(u31, width);
     app.framebuffer_height = @intCast(u31, height);
@@ -98,7 +103,7 @@ pub fn main() anyerror!void {
     c.glfwWindowHint(c.GLFW_DEPTH_BITS, 0);
     c.glfwWindowHint(c.GLFW_STENCIL_BITS, 8);
 
-    app.window = c.glfwCreateWindow(800, 600, c"Mandelbrot Set", null, null) orelse return error.GlfwCreateWindowFailed;
+    app.window = c.glfwCreateWindow(800, 600, "Mandelbrot Set", null, null) orelse return error.GlfwCreateWindowFailed;
     defer c.glfwDestroyWindow(app.window);
 
     c.glfwSetWindowUserPointer(app.window, app);
@@ -209,11 +214,11 @@ const Image = struct {
         c.glGenBuffers(1, &s.vertex_buffer);
         errdefer c.glDeleteBuffers(1, &s.vertex_buffer);
 
-        const vertexes = [][3]c.GLfloat{
-            []c.GLfloat{ 0.0, 0.0, 0.0 },
-            []c.GLfloat{ 0.0, @intToFloat(c.GLfloat, h), 0.0 },
-            []c.GLfloat{ @intToFloat(c.GLfloat, w), 0.0, 0.0 },
-            []c.GLfloat{ @intToFloat(c.GLfloat, w), @intToFloat(c.GLfloat, h), 0.0 },
+        const vertexes = [_][3]c.GLfloat{
+            [_]c.GLfloat{ 0.0, 0.0, 0.0 },
+            [_]c.GLfloat{ 0.0, @intToFloat(c.GLfloat, h), 0.0 },
+            [_]c.GLfloat{ @intToFloat(c.GLfloat, w), 0.0, 0.0 },
+            [_]c.GLfloat{ @intToFloat(c.GLfloat, w), @intToFloat(c.GLfloat, h), 0.0 },
         };
 
         c.glBindBuffer(c.GL_ARRAY_BUFFER, s.vertex_buffer);
@@ -224,11 +229,13 @@ const Image = struct {
 
         const img_w = @intToFloat(f32, s.width);
         const img_h = @intToFloat(f32, s.height);
-        const tex_coords = [][2]c.GLfloat{
-            []c.GLfloat{ 0, 0 },
-            []c.GLfloat{ 0, 1 },
-            []c.GLfloat{ 1, 0 },
-            []c.GLfloat{ 1, 1 },
+        _ = img_w;
+        _ = img_h;
+        const tex_coords = [_][2]c.GLfloat{
+            [_]c.GLfloat{ 0, 0 },
+            [_]c.GLfloat{ 0, 1 },
+            [_]c.GLfloat{ 1, 0 },
+            [_]c.GLfloat{ 1, 1 },
         };
 
         c.glBindBuffer(c.GL_ARRAY_BUFFER, s.tex_coord_buffer);

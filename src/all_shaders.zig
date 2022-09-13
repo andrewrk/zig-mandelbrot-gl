@@ -1,7 +1,7 @@
 const std = @import("std");
 const os = std.os;
 const panic = std.debug.panic;
-const c = @import("c.zig");
+const c = @import("c.zig").c;
 const math3d = @import("math3d.zig");
 const debug_gl = @import("debug_gl.zig");
 const Vec4 = math3d.Vec4;
@@ -45,9 +45,9 @@ pub const AllShaders = struct {
             \\}
         , null);
 
-        as.primitive_attrib_position = as.primitive.attribLocation(c"VertexPosition");
-        as.primitive_uniform_mvp = as.primitive.uniformLocation(c"MVP");
-        as.primitive_uniform_color = as.primitive.uniformLocation(c"Color");
+        as.primitive_attrib_position = as.primitive.attribLocation("VertexPosition");
+        as.primitive_uniform_mvp = as.primitive.uniformLocation("MVP");
+        as.primitive_uniform_color = as.primitive.uniformLocation("Color");
 
         as.texture = try ShaderProgram.create(
             \\#version 150 core
@@ -78,10 +78,10 @@ pub const AllShaders = struct {
             \\}
         , null);
 
-        as.texture_attrib_tex_coord = as.texture.attribLocation(c"TexCoord");
-        as.texture_attrib_position = as.texture.attribLocation(c"VertexPosition");
-        as.texture_uniform_mvp = as.texture.uniformLocation(c"MVP");
-        as.texture_uniform_tex = as.texture.uniformLocation(c"Tex");
+        as.texture_attrib_tex_coord = as.texture.attribLocation("TexCoord");
+        as.texture_attrib_position = as.texture.attribLocation("VertexPosition");
+        as.texture_uniform_mvp = as.texture.uniformLocation("MVP");
+        as.texture_uniform_tex = as.texture.uniformLocation("Tex");
 
         debug_gl.assertNoError();
 
@@ -108,7 +108,7 @@ pub const ShaderProgram = struct {
     pub fn attribLocation(sp: ShaderProgram, name: [*]const u8) c.GLint {
         const id = c.glGetAttribLocation(sp.program_id, name);
         if (id == -1) {
-            panic("invalid attrib: {}\n", name);
+            panic("invalid attrib: {}\n", .{id});
         }
         return id;
     }
@@ -116,29 +116,34 @@ pub const ShaderProgram = struct {
     pub fn uniformLocation(sp: ShaderProgram, name: [*]const u8) c.GLint {
         const id = c.glGetUniformLocation(sp.program_id, name);
         if (id == -1) {
-            panic("invalid uniform: {}\n", name);
+            panic("invalid uniform: {}\n", .{id});
         }
         return id;
     }
 
     pub fn setUniformInt(sp: ShaderProgram, uniform_id: c.GLint, value: c_int) void {
+        _ = sp;
         c.glUniform1i(uniform_id, value);
     }
 
     pub fn setUniformFloat(sp: ShaderProgram, uniform_id: c.GLint, value: f32) void {
+        _ = sp;
         c.glUniform1f(uniform_id, value);
     }
 
     pub fn setUniformVec3(sp: ShaderProgram, uniform_id: c.GLint, value: math3d.Vec3) void {
+        _ = sp;
         c.glUniform3fv(uniform_id, 1, value.data[0..].ptr);
     }
 
     pub fn setUniformVec4(sp: ShaderProgram, uniform_id: c.GLint, value: Vec4) void {
-        c.glUniform4fv(uniform_id, 1, value.data[0..].ptr);
+        _ = sp;
+        c.glUniform4fv(uniform_id, 1, value.data[0..]);
     }
 
     pub fn setUniformMat4x4(sp: ShaderProgram, uniform_id: c.GLint, value: Mat4x4) void {
-        c.glUniformMatrix4fv(uniform_id, 1, c.GL_FALSE, value.data[0][0..].ptr);
+        _ = sp;
+        c.glUniformMatrix4fv(uniform_id, 1, c.GL_FALSE, value.data[0][0..]);
     }
 
     pub fn create(
@@ -147,10 +152,10 @@ pub const ShaderProgram = struct {
         maybe_geometry_source: ?[]u8,
     ) !ShaderProgram {
         var sp: ShaderProgram = undefined;
-        sp.vertex_id = try initGlShader(vertex_source, c"vertex", c.GL_VERTEX_SHADER);
-        sp.fragment_id = try initGlShader(frag_source, c"fragment", c.GL_FRAGMENT_SHADER);
+        sp.vertex_id = try initGlShader(vertex_source, "vertex", c.GL_VERTEX_SHADER);
+        sp.fragment_id = try initGlShader(frag_source, "fragment", c.GL_FRAGMENT_SHADER);
         sp.maybe_geometry_id = if (maybe_geometry_source) |geo_source|
-            try initGlShader(geo_source, c"geometry", c.GL_GEOMETRY_SHADER)
+            try initGlShader(geo_source, "geometry", c.GL_GEOMETRY_SHADER)
         else
             null;
 
@@ -170,7 +175,8 @@ pub const ShaderProgram = struct {
         c.glGetProgramiv(sp.program_id, c.GL_INFO_LOG_LENGTH, &error_size);
         const message = try c_allocator.alloc(u8, @intCast(usize, error_size));
         c.glGetProgramInfoLog(sp.program_id, error_size, &error_size, message.ptr);
-        panic("Error linking shader program: {}\n", message.ptr);
+        _ = message;
+        panic("Error linking shader program: {*}\n", .{message});
     }
 
     pub fn destroy(sp: *ShaderProgram) void {
@@ -206,5 +212,7 @@ fn initGlShader(source: []const u8, name: [*]const u8, kind: c.GLenum) !c.GLuint
 
     const message = try c_allocator.alloc(u8, @intCast(usize, error_size));
     c.glGetShaderInfoLog(shader_id, error_size, &error_size, message.ptr);
-    panic("Error compiling {} shader:\n{}\n", name, message.ptr);
+    _ = name;
+    _ = message;
+    panic("Error compiling {*} shader:{*}\n", .{ name, message });
 }
