@@ -8,7 +8,6 @@ pub fn assertNoError() void {
     if (std.debug.runtime_safety) {
         const err = c.glGetError();
         if (err != c.GL_NO_ERROR) {
-            // _ = err;
             panic("GL error: {}\n", .{err});
         }
     }

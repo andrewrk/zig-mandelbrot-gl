@@ -108,7 +108,7 @@ pub const ShaderProgram = struct {
     pub fn attribLocation(sp: ShaderProgram, name: [*]const u8) c.GLint {
         const id = c.glGetAttribLocation(sp.program_id, name);
         if (id == -1) {
-            panic("invalid attrib: {}\n", .{id});
+            panic("invalid attrib: {}\n", .{name});
         }
         return id;
     }
@@ -116,7 +116,7 @@ pub const ShaderProgram = struct {
     pub fn uniformLocation(sp: ShaderProgram, name: [*]const u8) c.GLint {
         const id = c.glGetUniformLocation(sp.program_id, name);
         if (id == -1) {
-            panic("invalid uniform: {}\n", .{id});
+            panic("invalid uniform: {}\n", .{name});
         }
         return id;
     }
